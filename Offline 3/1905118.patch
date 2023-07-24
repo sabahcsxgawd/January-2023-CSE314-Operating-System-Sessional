@@ -262,7 +262,7 @@ index 6624bff..5ee084d 100644
 +#define DEFAULT_TICKET_COUNT    10
 \ No newline at end of file
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..64606f2 100644
+index 959b778..7c647c5 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -124,6 +124,11 @@ allocproc(void)
@@ -349,7 +349,7 @@ index 959b778..64606f2 100644
 +  int ticketCount = 0;
 +  for(p = proc; p < &proc[NPROC]; p++) {
 +    acquire(&p->lock);
-+    if(p->whichQueue == 1 && p->state == RUNNABLE) {
++    if(p->whichQueue == 1 && p->state == RUNNABLE && p->current_ticket_count > 0) {
 +      ticketCount += p->current_ticket_count;
 +    }
 +    release(&p->lock);
@@ -419,12 +419,12 @@ index 959b778..64606f2 100644
 +            swtch(&c->context, &p->context);
 +
 +            c->proc = 0;
-+            p->current_consumed_time_slots = 0;
 +
 +            if(p->state == RUNNABLE && p->current_consumed_time_slots >= TIME_LIMIT_1) {
-+              printf("moved to q2\n");
 +              p->whichQueue = 2;
 +            }
++
++            p->current_consumed_time_slots = 0;
 +          }
 +          else {
 +            randomPick -= p->current_ticket_count;
@@ -449,10 +449,10 @@ index 959b778..64606f2 100644
 +
 +    else {
 +    // Round Robin Scheduling
-+ROUND_ROBIN:
++ROUND_ROBIN:      
 +      for(p = proc; p < &proc[NPROC]; p++) {
 +        acquire(&p->lock);
-+        if(p->whichQueue == 2 && p->state == RUNNABLE && p->current_ticket_count > 0) {
++        if(p->whichQueue == 2 && p->state == RUNNABLE) {
 +          // choose the process
 +          p->current_consumed_time_slots = 0;
 +          p->current_ticket_count--;
@@ -461,12 +461,12 @@ index 959b778..64606f2 100644
 +          swtch(&c->context, &p->context);
 +
 +          c->proc = 0;
-+          p->current_consumed_time_slots = 0;
 +
 +          if(p->state != RUNNABLE && p->current_consumed_time_slots < TIME_LIMIT_2) {
-+            printf("moved to q1\n");
 +            p->whichQueue = 1;
 +          }
++
++          p->current_consumed_time_slots = 0;
 +        }
 +        release(&p->lock);
 +
@@ -691,7 +691,7 @@ index bc5f356..59d4d65 100644
 +#define SYS_getpinfo    23
 \ No newline at end of file
 diff --git a/kernel/sysproc.c b/kernel/sysproc.c
-index 1de184e..fbe0195 100644
+index 1de184e..c71e7c7 100644
 --- a/kernel/sysproc.c
 +++ b/kernel/sysproc.c
 @@ -5,6 +5,7 @@
@@ -749,7 +749,7 @@ index 1de184e..fbe0195 100644
 +      acquire(&p->lock);
 +      pstat.pid[index] = p->pid;
 +      pstat.inQ[index] = p->whichQueue;
-+      pstat.inuse[index] = p->state != UNUSED;
++      pstat.inuse[index] = p->state == RUNNING || p->state == RUNNABLE;
 +      pstat.tickets_original[index] = p->original_ticket_count;
 +      pstat.tickets_current[index] = p->current_ticket_count;
 +      pstat.time_slices[index] = p->total_consumed_time_slots;
