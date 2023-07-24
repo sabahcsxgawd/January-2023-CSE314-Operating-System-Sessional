@@ -262,7 +262,7 @@ index 6624bff..5ee084d 100644
 +#define DEFAULT_TICKET_COUNT    10
 \ No newline at end of file
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..e4b4f1a 100644
+index 959b778..54a4fc0 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -124,6 +124,11 @@ allocproc(void)
@@ -292,7 +292,7 @@ index 959b778..e4b4f1a 100644
    np->state = RUNNABLE;
    release(&np->lock);
  
-@@ -441,36 +453,205 @@ wait(uint64 addr)
+@@ -441,36 +453,204 @@ wait(uint64 addr)
  //  - swtch to start running that process.
  //  - eventually that process transfers control
  //    via swtch back to the scheduler.
@@ -455,7 +455,6 @@ index 959b778..e4b4f1a 100644
 +        if(p->whichQueue == 2 && p->state == RUNNABLE) {
 +          // choose the process
 +          p->current_consumed_time_slots = 0;
-+          p->current_ticket_count--;
 +          p->state = RUNNING;
 +          c->proc = p;
 +          swtch(&c->context, &p->context);
@@ -518,7 +517,7 @@ index 959b778..e4b4f1a 100644
  // Switch to scheduler.  Must hold only p->lock
  // and have changed proc->state. Saves and restores
  // intena because intena is a property of this
-@@ -504,6 +685,23 @@ yield(void)
+@@ -504,6 +684,23 @@ yield(void)
  {
    struct proc *p = myproc();
    acquire(&p->lock);
@@ -791,10 +790,10 @@ index 512c850..df3da1a 100644
  // and handle it.
 diff --git a/user/dummyproc.c b/user/dummyproc.c
 new file mode 100644
-index 0000000..037695d
+index 0000000..3cdcf59
 --- /dev/null
 +++ b/user/dummyproc.c
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,23 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
@@ -810,9 +809,11 @@ index 0000000..037695d
 +        exit(1);
 +    }
 +
-+    if(fork() == 0) {
-+        while(1);
-+    }
++    // if(fork() == 0) {
++    //     while(1);
++    // }
++    fork();
++    while(1);
 +
 +    exit(0);
 +}
