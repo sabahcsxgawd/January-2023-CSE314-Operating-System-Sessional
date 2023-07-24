@@ -1,5 +1,5 @@
 diff --git a/Makefile b/Makefile
-index 39a99d7..a68fe3f 100644
+index 39a99d7..5c0535b 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -28,7 +28,8 @@ OBJS = \
@@ -26,7 +26,7 @@ index 39a99d7..a68fe3f 100644
  	else echo "-s -p $(GDBPORT)"; fi)
  ifndef CPUS
 -CPUS := 3
-+CPUS := 1
++CPUS := 8
  endif
  
  QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
