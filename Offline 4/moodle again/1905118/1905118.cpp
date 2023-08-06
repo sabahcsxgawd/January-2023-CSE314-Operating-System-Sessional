@@ -33,9 +33,9 @@ sem_t printer_mutex[NUM_PS + 1];
 sem_t binding_station_sem;
 sem_t binding_station_mutex;
 sem_t entry_book_mutex;
-sem_t staff_mutex;
+sem_t stuff_mutex;
 
-int staff_count;
+int stuff_count;
 int down_once_printer[NUM_PS + 1];
 int binding_station_use[NUM_BS + 1];
 int submission_count;
@@ -53,7 +53,7 @@ void *student(void *id)
     int printer_station = GET_PRINTER(student_id);
     int group_id = GET_GROUP(student_id);
 
-    sleep((my_RAND() % 5) + 1);
+    sleep((my_RAND() % 4) + 1);
     student_states[student_id] = WAITING;
     printf("Student %d has arrived at the print station at time %ld\n", student_id, TIME);
 
@@ -149,23 +149,23 @@ void *staff(void *id)
 
     for (;;)
     {
-        sem_wait(&staff_mutex);
-        staff_count++;
-        if (staff_count == 1)
-        {
-            sem_wait(&entry_book_mutex);
-        }
-        sem_post(&staff_mutex);
-        printf("Staff %d has started reading the entry book at time %ld. No. of submission = %d\n", staff_id, TIME, submission_count);
-        sleep(y);
-        sem_wait(&staff_mutex);
-        staff_count--;
-        if (staff_count == 0)
+        sem_wait(&stuff_mutex);
+        stuff_count++;
+        if (stuff_count == 1)
         {
             sem_post(&entry_book_mutex);
         }
-        sem_post(&staff_mutex);
-        sleep((my_RAND() % 3) + 1);
+        sem_post(&stuff_mutex);
+        sleep((my_RAND() % 5) + 1);
+        printf("Staff %d has started reading the entry book at time %ld. No. of submission = %d\n", staff_id, TIME, submission_count);
+        sleep(y);
+        sem_wait(&stuff_mutex);
+        stuff_count--;
+        if (stuff_count == 0)
+        {
+            sem_post(&entry_book_mutex);
+        }
+        sem_post(&stuff_mutex);
     }
     return NULL;
 }
@@ -205,7 +205,7 @@ int main(int argc, char *argv[])
     sem_init(&binding_station_sem, 0, NUM_BS);
     sem_init(&binding_station_mutex, 0, 1);
     sem_init(&entry_book_mutex, 0, 1);
-    sem_init(&staff_mutex, 0, 1);
+    sem_init(&stuff_mutex, 0, 1);
 
     pthread_t students[N], staffs[NUM_STAFF];
 
@@ -273,7 +273,7 @@ int main(int argc, char *argv[])
     sem_destroy(&binding_station_sem);
     sem_destroy(&binding_station_mutex);
     sem_destroy(&entry_book_mutex);
-    sem_destroy(&staff_mutex);
+    sem_destroy(&stuff_mutex);
 
     fclose(fp);
     return 0;
