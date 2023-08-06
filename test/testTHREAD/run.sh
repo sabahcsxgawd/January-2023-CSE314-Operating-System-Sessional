@@ -1,0 +1,1 @@
+clear && g++ -fsanitize=address test.cpp -o test && ./test
