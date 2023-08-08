@@ -24,6 +24,7 @@
 #define my_RAND (dist(rng) + 1)
 
 std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+;
 std::poisson_distribution<int> dist(4);
 
 int N, M, w, x, y;
