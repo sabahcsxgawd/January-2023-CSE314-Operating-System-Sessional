@@ -1,12 +1,12 @@
 diff --git a/kernel/defs.h b/kernel/defs.h
-index a3c962b..2617b56 100644
+index a3c962b..7aeab1b 100644
 --- a/kernel/defs.h
 +++ b/kernel/defs.h
 @@ -173,6 +173,7 @@ uint64          walkaddr(pagetable_t, uint64);
  int             copyout(pagetable_t, uint64, char *, uint64);
  int             copyin(pagetable_t, char *, uint64, uint64);
  int             copyinstr(pagetable_t, char *, uint64, uint64);
-+// int             uvmmirror(pagetable_t, pagetable_t, uint64)
++int             uvmmirror(pagetable_t, pagetable_t, uint64)
  
  // plic.c
  void            plicinit(void);
