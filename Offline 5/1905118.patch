@@ -508,10 +508,10 @@ index 9f69783..374fcd6 100644
  void
 diff --git a/user/spinlock.c b/user/spinlock.c
 new file mode 100644
-index 0000000..f5ee231
+index 0000000..0a5d62e
 --- /dev/null
 +++ b/user/spinlock.c
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,55 @@
 +// Mutual exclusion spin locks.
 +
 +#include "kernel/types.h"
@@ -566,16 +566,6 @@ index 0000000..f5ee231
 +  //   amoswap.w zero, zero, (s1)
 +  __sync_lock_release(&lk->locked);
 +
-+}
-+
-+// Check whether this cpu is holding the lock.
-+// Interrupts must be off.
-+int
-+holding(struct thread_spinlock *lk)
-+{
-+  int r;
-+  r = (lk->locked);
-+  return r;
 +}
 diff --git a/user/spinlock.h b/user/spinlock.h
 new file mode 100644
