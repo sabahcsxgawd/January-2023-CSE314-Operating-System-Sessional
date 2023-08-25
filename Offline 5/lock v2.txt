@@ -51,7 +51,8 @@ Conditionals {
     1.  Drop the parameters src and len, since len is assumed to be 1 (that's why locked was turned into uint8).
     2.  Remove the while loop. Only one iteration is needed.
     3.  Drop the variable n, and delete every line that references this variable.
-    4.  Write these two lines before return 0:
+    4.  Remove this line: dstva = va0 + PGSIZE;
+    5.  Write these two lines before return 0:
             __sync_synchronize();
             __sync_lock_release((uint8*)(pa0 + (dstva - va0)));
         pa0 + (dstva - va0) is the physical address of the locked varaible. By calling release on this address,
