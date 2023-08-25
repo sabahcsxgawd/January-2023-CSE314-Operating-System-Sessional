@@ -33,7 +33,7 @@ index 39a99d7..e5b1904 100644
  fs.img: mkfs/mkfs README $(UPROGS)
  	mkfs/mkfs fs.img README $(UPROGS)
 diff --git a/kernel/defs.h b/kernel/defs.h
-index a3c962b..22f77d3 100644
+index a3c962b..be3a024 100644
 --- a/kernel/defs.h
 +++ b/kernel/defs.h
 @@ -89,6 +89,7 @@ int             growproc(int);
@@ -44,16 +44,17 @@ index a3c962b..22f77d3 100644
  int             kill(int);
  int             killed(struct proc*);
  void            setkilled(struct proc*);
-@@ -106,6 +107,8 @@ void            yield(void);
+@@ -106,6 +107,9 @@ void            yield(void);
  int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
  int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
  void            procdump(void);
 +int             clone(uint64 fcn, uint64 arg, uint64 stack);
 +int             join(int);
++void            mtx_wakeup(void*, int);
  
  // swtch.S
  void            swtch(struct context*, struct context*);
-@@ -173,6 +176,8 @@ uint64          walkaddr(pagetable_t, uint64);
+@@ -173,6 +177,8 @@ uint64          walkaddr(pagetable_t, uint64);
  int             copyout(pagetable_t, uint64, char *, uint64);
  int             copyin(pagetable_t, char *, uint64, uint64);
  int             copyinstr(pagetable_t, char *, uint64, uint64);
@@ -63,7 +64,7 @@ index a3c962b..22f77d3 100644
  // plic.c
  void            plicinit(void);
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..db8d4e2 100644
+index 959b778..4a4d58e 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -50,9 +50,10 @@ procinit(void)
@@ -287,6 +288,44 @@ index 959b778..db8d4e2 100644
  // Per-CPU process scheduler.
  // Each CPU calls scheduler() after setting itself up.
  // Scheduler never returns.  It loops, doing:
+@@ -579,6 +728,37 @@ wakeup(void *chan)
+   }
+ }
+ 
++void
++mtx_wakeup(void *chan, int pid)
++{
++  struct proc *p;
++  int mem_id = 0;
++
++  for(p = proc; p < &proc[NPROC]; p++) {
++    acquire(&p->lock);
++    if(p->pid == pid && p->state == RUNNING) {
++      mem_id = p->mem_id;
++      release(&p->lock);
++      break;
++    }
++    release(&p->lock);
++  }
++
++  for(p = proc; p < &proc[NPROC]; p++) {
++    if(p != myproc()){      
++      acquire(&p->lock);      
++      if(p->state == SLEEPING && 
++      p->chan == chan && 
++      p->mem_id == mem_id && 
++      p->pid != mem_id &&
++      p->pid != pid) {
++        p->state = RUNNABLE;
++      }
++      release(&p->lock);
++    }
++  }
++}
++
+ // Kill the process with the given pid.
+ // The victim won't exit until it tries to return
+ // to user space (see usertrap() in trap.c).
 diff --git a/kernel/proc.h b/kernel/proc.h
 index d021857..e9b02f9 100644
 --- a/kernel/proc.h
@@ -302,16 +341,17 @@ index d021857..e9b02f9 100644
 +  int mem_id;  
  };
 diff --git a/kernel/syscall.c b/kernel/syscall.c
-index ed65409..118b2c1 100644
+index ed65409..4cce61d 100644
 --- a/kernel/syscall.c
 +++ b/kernel/syscall.c
-@@ -101,31 +101,37 @@ extern uint64 sys_unlink(void);
+@@ -101,31 +101,39 @@ extern uint64 sys_unlink(void);
  extern uint64 sys_link(void);
  extern uint64 sys_mkdir(void);
  extern uint64 sys_close(void);
 +extern uint64 sys_thread_create(void);
 +extern uint64 sys_thread_join(void);
 +extern uint64 sys_thread_exit(void);
++extern uint64 sys_mtx_wakeup(void);
  
  // An array mapping syscall numbers from syscall.h
  // to the function that handles the system call.
@@ -361,14 +401,15 @@ index ed65409..118b2c1 100644
 +[SYS_thread_create]   sys_thread_create,
 +[SYS_thread_join]     sys_thread_join,
 +[SYS_thread_exit]     sys_thread_exit,
++[SYS_mtx_wakeup]      sys_mtx_wakeup,
  };
  
  void
 diff --git a/kernel/syscall.h b/kernel/syscall.h
-index bc5f356..0e974c0 100644
+index bc5f356..e0fe7a8 100644
 --- a/kernel/syscall.h
 +++ b/kernel/syscall.h
-@@ -1,22 +1,25 @@
+@@ -1,22 +1,26 @@
  // System call numbers
 -#define SYS_fork    1
 -#define SYS_exit    2
@@ -415,8 +456,9 @@ index bc5f356..0e974c0 100644
 +#define SYS_thread_create  22
 +#define SYS_thread_join    23
 +#define SYS_thread_exit    24
++#define SYS_mtx_wakeup     25
 diff --git a/kernel/sysproc.c b/kernel/sysproc.c
-index 1de184e..65b01d8 100644
+index 1de184e..589e00d 100644
 --- a/kernel/sysproc.c
 +++ b/kernel/sysproc.c
 @@ -61,7 +61,7 @@ sys_sleep(void)
@@ -428,7 +470,7 @@ index 1de184e..65b01d8 100644
      sleep(&ticks, &tickslock);
    }
    release(&tickslock);
-@@ -89,3 +89,31 @@ sys_uptime(void)
+@@ -89,3 +89,40 @@ sys_uptime(void)
    release(&tickslock);
    return xticks;
  }
@@ -458,6 +500,15 @@ index 1de184e..65b01d8 100644
 +sys_thread_exit(void)
 +{
 +  exit(0);
++  return 0;
++}
++
++uint64
++sys_mtx_wakeup(void)
++{
++  int pid;
++  argint(0, &pid);
++  mtx_wakeup(&ticks, pid);
 +  return 0;
 +}
 \ No newline at end of file
@@ -517,10 +568,10 @@ index 9f69783..374fcd6 100644
  void
 diff --git a/user/mutex.c b/user/mutex.c
 new file mode 100644
-index 0000000..386b6d0
+index 0000000..520b21c
 --- /dev/null
 +++ b/user/mutex.c
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +// Sleeping locks
 +
 +#include "kernel/types.h"
@@ -545,6 +596,7 @@ index 0000000..386b6d0
 +{
 +  __sync_synchronize();
 +  __sync_lock_release(&lk->locked);
++  mtx_wakeup(getpid());
 +}
 \ No newline at end of file
 diff --git a/user/mutex.h b/user/mutex.h
@@ -649,14 +701,14 @@ index 0000000..e33b028
 \ No newline at end of file
 diff --git a/user/threads.c b/user/threads.c
 new file mode 100644
-index 0000000..287ec2b
+index 0000000..d15dc26
 --- /dev/null
 +++ b/user/threads.c
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,90 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
-+// #include "user/spinlock.h"
++#include "user/spinlock.h"
 +#include "user/mutex.h"
 +
 +struct balance {
@@ -665,7 +717,7 @@ index 0000000..287ec2b
 +};
 +
 +// struct thread_spinlock lock;
-+struct thread_mutex mlock, plock;
++struct thread_mutex mlock;
 +
 +volatile int total_balance = 0;
 +
@@ -683,9 +735,11 @@ index 0000000..287ec2b
 +    int old;
 +   
 +    struct balance *b = (struct balance*) arg; 
-+    thread_mutex_lock(&plock);
++    //  thread_spin_lock(&lock);
++    thread_mutex_lock(&mlock);
 +    printf( "Starting do_work: s:%s\n", b->name);
-+    thread_mutex_unlock(&plock);
++    thread_mutex_unlock(&mlock);
++    //  thread_spin_unlock(&lock);
 +
 +    for (i = 0; i < b->amount; i++) { 
 +        // lock and mlock will be implemented by you.
@@ -693,16 +747,24 @@ index 0000000..287ec2b
 +         thread_mutex_lock(&mlock);
 +         old = total_balance;
 +         delay(100000);
++        //  if(b->amount == 3200) {
++        //     printf("B1\n");
++        //  }
++        //  if(b->amount == 2800) {
++        //     printf("B2\n");
++        //  }
 +	    //  if(old != total_balance)  printf("we will miss an update. old: %d total_balance: %d\n", old, total_balance);
 +         total_balance = old + 1;    
-+        //  thread_spin_unlock(&lock);
 +         thread_mutex_unlock(&mlock);
++        //  thread_spin_unlock(&lock);
 +
 +    }
 +
-+    thread_mutex_lock(&plock);
++    // thread_spin_lock(&lock);
++    thread_mutex_lock(&mlock);
 +    printf( "Done s:%x\n", b->name);
-+    thread_mutex_unlock(&plock);
++    thread_mutex_unlock(&mlock);
++    // thread_spin_unlock(&lock);
 +
 +    thread_exit();
 +    return;
@@ -715,7 +777,6 @@ index 0000000..287ec2b
 +
 +//   thread_spin_init(&lock);
 +  thread_mutex_init(&mlock);
-+  thread_mutex_init(&plock);
 + 
 +  void *s1, *s2;
 +  int thread1, thread2, r1, r2;
@@ -736,27 +797,29 @@ index 0000000..287ec2b
 +}
 \ No newline at end of file
 diff --git a/user/user.h b/user/user.h
-index 4d398d5..35a38e4 100644
+index 4d398d5..c38ccb0 100644
 --- a/user/user.h
 +++ b/user/user.h
-@@ -22,6 +22,9 @@ int getpid(void);
+@@ -22,6 +22,10 @@ int getpid(void);
  char* sbrk(int);
  int sleep(int);
  int uptime(void);
 +int thread_create(void(*fcn)(void*), void *arg, void* stack);
 +int thread_join(int thread_id);
 +int thread_exit(void);
++int mtx_wakeup(int);
  
  // ulib.c
  int stat(const char*, struct stat*);
 diff --git a/user/usys.pl b/user/usys.pl
-index 01e426e..a334aa7 100755
+index 01e426e..21e83ad 100755
 --- a/user/usys.pl
 +++ b/user/usys.pl
-@@ -36,3 +36,6 @@ entry("getpid");
+@@ -36,3 +36,7 @@ entry("getpid");
  entry("sbrk");
  entry("sleep");
  entry("uptime");
 +entry("thread_create");
 +entry("thread_join");
 +entry("thread_exit");
++entry("mtx_wakeup");
