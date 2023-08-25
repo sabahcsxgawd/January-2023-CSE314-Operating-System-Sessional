@@ -649,10 +649,10 @@ index 0000000..e33b028
 \ No newline at end of file
 diff --git a/user/threads.c b/user/threads.c
 new file mode 100644
-index 0000000..f5a28c8
+index 0000000..287ec2b
 --- /dev/null
 +++ b/user/threads.c
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,81 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
@@ -665,7 +665,7 @@ index 0000000..f5a28c8
 +};
 +
 +// struct thread_spinlock lock;
-+struct thread_mutex mlock;
++struct thread_mutex mlock, plock;
 +
 +volatile int total_balance = 0;
 +
@@ -683,9 +683,9 @@ index 0000000..f5a28c8
 +    int old;
 +   
 +    struct balance *b = (struct balance*) arg; 
-+    thread_mutex_lock(&mlock);
++    thread_mutex_lock(&plock);
 +    printf( "Starting do_work: s:%s\n", b->name);
-+    thread_mutex_unlock(&mlock);
++    thread_mutex_unlock(&plock);
 +
 +    for (i = 0; i < b->amount; i++) { 
 +        // lock and mlock will be implemented by you.
@@ -700,9 +700,9 @@ index 0000000..f5a28c8
 +
 +    }
 +
-+    thread_mutex_lock(&mlock);
++    thread_mutex_lock(&plock);
 +    printf( "Done s:%x\n", b->name);
-+    thread_mutex_unlock(&mlock);
++    thread_mutex_unlock(&plock);
 +
 +    thread_exit();
 +    return;
@@ -715,6 +715,7 @@ index 0000000..f5a28c8
 +
 +//   thread_spin_init(&lock);
 +  thread_mutex_init(&mlock);
++  thread_mutex_init(&plock);
 + 
 +  void *s1, *s2;
 +  int thread1, thread2, r1, r2;
