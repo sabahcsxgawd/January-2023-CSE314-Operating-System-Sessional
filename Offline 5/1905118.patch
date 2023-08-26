@@ -623,10 +623,10 @@ index 9f69783..1847f2d 100644
  void
 diff --git a/user/condvar.c b/user/condvar.c
 new file mode 100644
-index 0000000..2e32727
+index 0000000..7e8e08c
 --- /dev/null
 +++ b/user/condvar.c
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,51 @@
 +#include "kernel/types.h"
 +#include "user/user.h"
 +#include "condvar.h"
@@ -666,10 +666,15 @@ index 0000000..2e32727
 +    int thread_id = 0;
 +
 +    thread_mutex_lock(&lk->queue_lock);
-+    thread_id = queue_front(&lk->queue);
-+    while(thread_id > 0) {
-+        queue_pop(&lk->queue);
-+        condvar_wakeup(thread_id);
++    while(1) {
++        thread_id = queue_front(&lk->queue);
++        if(thread_id > 0) {
++            queue_pop(&lk->queue);
++            condvar_wakeup(thread_id);
++        } 
++        else {
++            break;
++        }       
 +    }
 +    thread_mutex_unlock(&lk->queue_lock);  
 +}
@@ -700,10 +705,10 @@ index 0000000..38ba5f3
 \ No newline at end of file
 diff --git a/user/condvartest.c b/user/condvartest.c
 new file mode 100644
-index 0000000..abc0eeb
+index 0000000..57b1217
 --- /dev/null
 +++ b/user/condvartest.c
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,76 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
@@ -733,6 +738,7 @@ index 0000000..abc0eeb
 +        printf("Incremented: %d\n", sharedValue);
 +        thread_mutex_unlock(&mutex);
 +        thread_condvar_signal(&condition); // Signal waiting threads
++        // thread_condvar_broadcast(&condition); // Signal waiting threads
 +        sleep(1);
 +    }
 +    thread_exit();
