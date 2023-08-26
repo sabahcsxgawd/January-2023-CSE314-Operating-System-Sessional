@@ -527,10 +527,10 @@ index 9f69783..374fcd6 100644
  void
 diff --git a/user/mutex.c b/user/mutex.c
 new file mode 100644
-index 0000000..d09d782
+index 0000000..b14f661
 --- /dev/null
 +++ b/user/mutex.c
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,25 @@
 +// Sleeping locks
 +
 +#include "kernel/types.h"
@@ -546,7 +546,6 @@ index 0000000..d09d782
 +{
 +  while (__sync_lock_test_and_set(&lk->locked, 1) != 0)
 +  {
-+    // mtx_sleep();
 +    sleep(1);
 +  }
 +  __sync_synchronize();
