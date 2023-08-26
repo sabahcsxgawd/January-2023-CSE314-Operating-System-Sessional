@@ -13,7 +13,7 @@ index 0000000..ca0f549
 +}
 \ No newline at end of file
 diff --git a/Makefile b/Makefile
-index 39a99d7..434daef 100644
+index 39a99d7..3673db0 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -87,7 +87,7 @@ $U/initcode: $U/initcode.S
@@ -21,17 +21,18 @@ index 39a99d7..434daef 100644
  	etags *.S *.c
  
 -ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
-+ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/spinlock.o $U/mutex.o $U/queue.o $U/condvar.o
++ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/spinlock.o $U/mutex.o $U/queue.o $U/condvar.o $U/semaphore.o
  
  _%: %.o $(ULIB)
  	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
-@@ -132,6 +132,9 @@ UPROGS=\
+@@ -132,6 +132,10 @@ UPROGS=\
  	$U/_grind\
  	$U/_wc\
  	$U/_zombie\
 +	$U/_threads\
 +	$U/_mtxtest\
 +	$U/_condvartest\
++	$U/_semtest\
  
  fs.img: mkfs/mkfs README $(UPROGS)
  	mkfs/mkfs fs.img README $(UPROGS)
@@ -1043,6 +1044,68 @@ index 0000000..d2eb659
 +
 +#endif
 \ No newline at end of file
+diff --git a/user/semaphore.c b/user/semaphore.c
+new file mode 100644
+index 0000000..5a6df86
+--- /dev/null
++++ b/user/semaphore.c
+@@ -0,0 +1,28 @@
++#include "kernel/types.h"
++#include "user/semaphore.h"
++
++void thread_sem_init(struct thread_sem *sem, int value)
++{
++    sem->value = value;
++    thread_condvar_init(&sem->cond);
++    thread_mutex_init(&sem->mx);
++}
++
++void thread_sem_wait(struct thread_sem *sem)
++{
++    thread_mutex_lock(&sem->mx);
++    while (sem->value <= 0)
++    {
++        thread_condvar_wait(&sem->cond, &sem->mx);
++    }
++    sem->value--;
++    thread_mutex_unlock(&sem->mx);
++}
++
++void thread_sem_post(struct thread_sem *sem)
++{
++    thread_mutex_lock(&sem->mx);
++    thread_condvar_signal(&sem->cond);
++    sem->value++;
++    thread_mutex_unlock(&sem->mx);
++}
+\ No newline at end of file
+diff --git a/user/semaphore.h b/user/semaphore.h
+new file mode 100644
+index 0000000..20dc8fa
+--- /dev/null
++++ b/user/semaphore.h
+@@ -0,0 +1,17 @@
++#ifndef THRD_SEM
++#define THRD_SEM
++
++#include "user/mutex.h"
++#include "user/condvar.h"
++
++struct thread_sem {
++    int value;
++    struct thread_condvar cond;
++    struct thread_mutex mx; 
++};
++
++void thread_sem_init(struct thread_sem *sem, int value);
++void thread_sem_wait(struct thread_sem *sem);
++void thread_sem_post(struct thread_sem *sem);
++
++#endif
+\ No newline at end of file
+diff --git a/user/semtest.c b/user/semtest.c
+new file mode 100644
+index 0000000..e69de29
 diff --git a/user/spinlock.c b/user/spinlock.c
 new file mode 100644
 index 0000000..a52e8c7
