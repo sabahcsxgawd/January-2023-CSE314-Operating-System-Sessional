@@ -13,7 +13,7 @@ index 0000000..ca0f549
 +}
 \ No newline at end of file
 diff --git a/Makefile b/Makefile
-index 39a99d7..3673db0 100644
+index 39a99d7..82f90eb 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -87,7 +87,7 @@ $U/initcode: $U/initcode.S
@@ -25,7 +25,7 @@ index 39a99d7..3673db0 100644
  
  _%: %.o $(ULIB)
  	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
-@@ -132,6 +132,10 @@ UPROGS=\
+@@ -132,6 +132,11 @@ UPROGS=\
  	$U/_grind\
  	$U/_wc\
  	$U/_zombie\
@@ -33,6 +33,7 @@ index 39a99d7..3673db0 100644
 +	$U/_mtxtest\
 +	$U/_condvartest\
 +	$U/_semtest\
++	$U/_producer_consumer\
  
  fs.img: mkfs/mkfs README $(UPROGS)
  	mkfs/mkfs fs.img README $(UPROGS)
@@ -992,6 +993,120 @@ index 0000000..1901144
 +void thread_mutex_unlock(struct thread_mutex *lk);
 +
 +#endif
+\ No newline at end of file
+diff --git a/user/producer_consumer.c b/user/producer_consumer.c
+new file mode 100644
+index 0000000..30869e2
+--- /dev/null
++++ b/user/producer_consumer.c
+@@ -0,0 +1,107 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++#include "user/queue.h"
++#include "user/mutex.h"
++#include "user/semaphore.h"
++
++struct queue q;
++// a mutex object lock
++struct thread_mutex lock;
++// a semaphore object empty
++struct thread_sem empty;
++// a semaphore object full
++struct thread_sem full;
++// to lock console
++struct thread_mutex plock;
++
++void init_semaphore()
++{
++    // initialize mutex lock
++    thread_mutex_init(&lock);
++    thread_mutex_init(&plock);
++    // initialize semaphore empty with 5
++    thread_sem_init(&empty, 5);
++    // initialize semaphore full with 0
++    thread_sem_init(&full, 0);
++}
++
++void ProducerFunc(void *arg)
++{
++    thread_mutex_lock(&plock);
++    printf("%s\n", (char *)arg);
++    thread_mutex_unlock(&plock);
++    int i;
++    for (i = 1; i <= 10; i++)
++    {
++        // wait for semphore empty
++        thread_sem_wait(&empty);
++        // wait for mutex lock
++        thread_mutex_lock(&lock);
++
++        sleep(1);
++        queue_push(&q, i);
++        thread_mutex_lock(&plock);
++        printf("producer produced item %d\n", i);
++        thread_mutex_unlock(&plock);
++
++        // unlock mutex lock
++        thread_mutex_unlock(&lock);
++        // post semaphore full
++        thread_sem_post(&full);
++    }
++    thread_exit();
++}
++
++void ConsumerFunc(void *arg)
++{
++    thread_mutex_lock(&plock);
++    printf("%s\n", (char *)arg);
++    thread_mutex_unlock(&plock);
++    int i;
++    for (i = 1; i <= 10; i++)
++    {
++        // wait for semphore full
++        thread_sem_wait(&full);
++        // wait for mutex lock
++        thread_mutex_lock(&lock);
++
++        sleep(1);
++        int item = queue_front(&q);
++        queue_pop(&q);
++
++        thread_mutex_lock(&plock);
++        printf("consumer consumed item %d\n", item);
++        thread_mutex_unlock(&plock);
++
++        // unlock mutex lock
++        thread_mutex_unlock(&lock);
++        // post semaphore empty
++        thread_sem_post(&empty);
++    }
++    thread_exit();
++}
++
++int main(void)
++{
++
++    queue_init(&q);
++    init_semaphore();
++
++    char *message1 = "i am producer";
++    char *message2 = "i am consumer";
++
++    void *s1, *s2;
++    int thread1, thread2;
++
++    s1 = malloc(4096);
++    s2 = malloc(4096);
++
++    thread1 = thread_create(ProducerFunc, (void *)message1, s1);
++    thread2 = thread_create(ConsumerFunc, (void *)message2, s2);
++
++    thread_join(thread1);
++    thread_join(thread2);
++
++    exit(0);
++}
 \ No newline at end of file
 diff --git a/user/queue.c b/user/queue.c
 new file mode 100644
