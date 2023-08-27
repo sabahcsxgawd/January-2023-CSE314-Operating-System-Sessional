@@ -73,7 +73,7 @@ index a3c962b..6e0778f 100644
  // plic.c
  void            plicinit(void);
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..d87e0c2 100644
+index 959b778..762c074 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -53,6 +53,7 @@ procinit(void)
@@ -270,15 +270,15 @@ index 959b778..d87e0c2 100644
 +  acquire(&wait_lock);
 +
 +  for(;;){
++    chan = 0;
 +    for(pp = proc; pp < &proc[NPROC]; pp++){
 +      if(pp->pid == thread_id){
 +        // make sure the child isn't still in exit() or swtch().
-+        chan = pp;
 +        acquire(&pp->lock);
++        chan = pp;
 +        if(pp->state == ZOMBIE){
 +          // Found one.
 +          pid = pp->pid;
-+
 +          freeproc(pp);
 +          release(&pp->lock);
 +          release(&wait_lock);
@@ -302,6 +302,15 @@ index 959b778..d87e0c2 100644
  // Per-CPU process scheduler.
  // Each CPU calls scheduler() after setting itself up.
  // Scheduler never returns.  It loops, doing:
+@@ -571,7 +720,7 @@ wakeup(void *chan)
+   for(p = proc; p < &proc[NPROC]; p++) {
+     if(p != myproc()){
+       acquire(&p->lock);
+-      if(p->state == SLEEPING && p->chan == chan) {
++      if(p->state == SLEEPING && p->chan == chan) {        
+         p->state = RUNNABLE;
+       }
+       release(&p->lock);
 @@ -659,12 +808,12 @@ void
  procdump(void)
  {
@@ -638,7 +647,7 @@ index 9f69783..1847f2d 100644
  void
 diff --git a/user/condvar.c b/user/condvar.c
 new file mode 100644
-index 0000000..7e8e08c
+index 0000000..cfe665c
 --- /dev/null
 +++ b/user/condvar.c
 @@ -0,0 +1,51 @@
@@ -669,11 +678,11 @@ index 0000000..7e8e08c
 +
 +    thread_mutex_lock(&lk->queue_lock);
 +    thread_id = queue_front(&lk->queue);
++    thread_mutex_unlock(&lk->queue_lock);   
 +    if(thread_id > 0) {
 +        queue_pop(&lk->queue);
 +        condvar_wakeup(thread_id);
 +    }
-+    thread_mutex_unlock(&lk->queue_lock);   
 +}
 +
 +void thread_condvar_broadcast(struct thread_condvar *lk)
@@ -803,17 +812,17 @@ index 0000000..57b1217
 \ No newline at end of file
 diff --git a/user/jointest.c b/user/jointest.c
 new file mode 100644
-index 0000000..04b7992
+index 0000000..5b8421b
 --- /dev/null
 +++ b/user/jointest.c
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,112 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
 +#include "user/mutex.h"
 +
 +int thread1, thread2, thread3, thread4;
-+int r1, r2, r3, r4;
++int r1, r2, r3, r4, r5;
 +
 +struct balance {
 +    char name[32];
@@ -874,7 +883,8 @@ index 0000000..04b7992
 +        r3 = thread_join(thread3);
 +
 +    if(b->amount == 2800)
-+        r4 = thread_join(thread4);
++        r5 = thread_join(thread3);
++        // r4 = thread_join(thread4);
 +
 +    // thread_spin_lock(&lock);
 +    thread_mutex_lock(&plock);
@@ -911,10 +921,10 @@ index 0000000..04b7992
 +
 +  r1 = thread_join(thread1);
 +  r2 = thread_join(thread2);
-+    
++  r4 = thread_join(thread4);   
 +
-+  printf("Threads finished: (%d):%d, (%d):%d, (%d):%d, (%d):%d, shared balance:%d\n",
-+      thread1, r1, thread2, r2, thread3, r3, thread4, r4, total_balance);
++  printf("Threads finished: (%d):%d, (%d):%d, (%d):%d {%d}, (%d):%d, shared balance:%d\n",
++      thread1, r1, thread2, r2, thread3, r3, r5, thread4, r4, total_balance);
 +
 +  exit(0);
 +}
@@ -1243,7 +1253,7 @@ index 0000000..31ea565
 \ No newline at end of file
 diff --git a/user/queue.c b/user/queue.c
 new file mode 100644
-index 0000000..18d55fc
+index 0000000..570b358
 --- /dev/null
 +++ b/user/queue.c
 @@ -0,0 +1,20 @@
@@ -1254,7 +1264,7 @@ index 0000000..18d55fc
 +}
 +void queue_push(struct queue *q, int x) {
 +    q->arr[q->rear] = x;
-+    q->rear = (q->rear + 1) % 16;
++    q->rear = (q->rear + 1) % 118;
 +    q->size++;
 +}
 +int queue_front(struct queue *q) {
@@ -1264,13 +1274,13 @@ index 0000000..18d55fc
 +    return q->arr[q->front];
 +}
 +void queue_pop(struct queue *q) {
-+    q->front = (q->front + 1) % 16;
++    q->front = (q->front + 1) % 118;
 +    q->size--;
 +}
 \ No newline at end of file
 diff --git a/user/queue.h b/user/queue.h
 new file mode 100644
-index 0000000..d2eb659
+index 0000000..e9dfe04
 --- /dev/null
 +++ b/user/queue.h
 @@ -0,0 +1,17 @@
@@ -1279,7 +1289,7 @@ index 0000000..d2eb659
 +
 +struct queue
 +{
-+    int arr[16];
++    int arr[118];
 +    int front;
 +    int rear;
 +    int size;
