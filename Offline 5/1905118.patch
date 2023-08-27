@@ -72,7 +72,7 @@ index a3c962b..6e0778f 100644
  // plic.c
  void            plicinit(void);
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..84bb3ff 100644
+index 959b778..3183d99 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -53,6 +53,7 @@ procinit(void)
@@ -240,7 +240,21 @@ index 959b778..84bb3ff 100644
  // Pass p's abandoned children to init.
  // Caller must hold wait_lock.
  void
-@@ -434,6 +538,48 @@ wait(uint64 addr)
+@@ -371,7 +475,12 @@ exit(int status)
+   reparent(p);
+ 
+   // Parent might be sleeping in wait().
+-  wakeup(p->parent);
++  if(p->is_thread == 0) {
++    wakeup(p->parent);
++  }  
++  else {
++    wakeup(p);
++  }
+   
+   acquire(&p->lock);
+ 
+@@ -434,6 +543,46 @@ wait(uint64 addr)
    }
  }
  
@@ -248,20 +262,18 @@ index 959b778..84bb3ff 100644
 +join(int thread_id)
 +{
 +  struct proc *pp;
-+  int havekids, pid;
++  int pid;
++  void* chan = 0;
 +  struct proc *p = myproc();
 +
 +  acquire(&wait_lock);
 +
 +  for(;;){
-+    // Scan through table looking for exited children.
-+    havekids = 0;
 +    for(pp = proc; pp < &proc[NPROC]; pp++){
-+      if(pp->parent == p && pp->pid == thread_id){
++      if(pp->pid == thread_id){
 +        // make sure the child isn't still in exit() or swtch().
 +        acquire(&pp->lock);
-+
-+        havekids = 1;
++        chan = pp;
 +        if(pp->state == ZOMBIE){
 +          // Found one.
 +          pid = pp->pid;
@@ -276,20 +288,20 @@ index 959b778..84bb3ff 100644
 +    }
 +
 +    // No point waiting if we don't have any children.
-+    if(!havekids || killed(p)){
++    if(killed(p)){
 +      release(&wait_lock);
 +      return -1;
 +    }
 +
 +    // Wait for a child to exit.
-+    sleep(p, &wait_lock);  //DOC: wait-sleep
++    sleep(chan, &wait_lock);  //DOC: wait-sleep
 +  }
 +}
 +
  // Per-CPU process scheduler.
  // Each CPU calls scheduler() after setting itself up.
  // Scheduler never returns.  It loops, doing:
-@@ -659,12 +805,12 @@ void
+@@ -659,12 +808,12 @@ void
  procdump(void)
  {
    static char *states[] = {
@@ -307,7 +319,7 @@ index 959b778..84bb3ff 100644
    };
    struct proc *p;
    char *state;
-@@ -681,3 +827,73 @@ procdump(void)
+@@ -681,3 +830,73 @@ procdump(void)
      printf("\n");
    }
  }
@@ -788,6 +800,119 @@ index 0000000..57b1217
 +    exit(0);
 +}
 \ No newline at end of file
+diff --git a/user/jointest.c b/user/jointest.c
+new file mode 100644
+index 0000000..3848a4c
+--- /dev/null
++++ b/user/jointest.c
+@@ -0,0 +1,106 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++#include "user/mutex.h"
++
++int thread1, thread2, thread3, thread4;
++int r1, r2, r3, r4;
++
++struct balance {
++    char name[32];
++    int amount;
++};
++
++// struct thread_spinlock lock;
++struct thread_mutex mlock, plock;
++
++volatile int total_balance = 0;
++
++volatile unsigned int delay (unsigned int d) {
++   unsigned int i;
++   for (i = 0; i < d; i++) {
++       __asm volatile( "nop" ::: );
++   }
++
++   return i;
++}
++
++void do_work(void *arg){
++    int i;
++    int old;
++
++    struct balance *b = (struct balance*) arg;
++    //  thread_spin_lock(&lock);
++    thread_mutex_lock(&plock);
++    printf( "Starting do_work: s:%s\n", b->name);
++    thread_mutex_unlock(&plock);
++    //  thread_spin_unlock(&lock);
++
++    for (i = 0; i < b->amount; i++) {
++        // lock and mlock will be implemented by you.
++        //  thread_spin_lock(&lock);
++         thread_mutex_lock(&mlock);
++         old = total_balance;
++        //  if(b->amount == 3200) {
++        //     printf("B1\n");
++        //  }
++        //  if(b->amount == 2800) {
++        //     printf("B2\n");
++        //  }
++        //  if(b->amount == 2700) {
++        //     printf("B3\n");
++        //  }
++        //  if(b->amount == 2300) {
++        //     printf("B4\n");
++        //  }
++         delay(100000);
++	    //  if(old != total_balance)  printf("we will miss an update. old: %d total_balance: %d\n", old, total_balance);
++         total_balance = old + 1;
++         thread_mutex_unlock(&mlock);
++        //  thread_spin_unlock(&lock);
++
++    }
++
++    // thread_spin_lock(&lock);
++    thread_mutex_lock(&plock);
++    printf( "Done s:%x %s\n", b->name, b->name);
++    thread_mutex_unlock(&plock);
++    // thread_spin_unlock(&lock);
++
++    thread_exit();
++    return;
++}
++
++int main(int argc, char *argv[]) {
++
++  struct balance b1 = {"b1", 3200};
++  struct balance b2 = {"b2", 2800};
++  struct balance b3 = {"b3", 2700};
++  struct balance b4 = {"b4", 2300};
++
++//   thread_spin_init(&lock);
++  thread_mutex_init(&mlock);
++  thread_mutex_init(&plock);
++
++  void *s1, *s2, *s3, *s4;  
++
++  s1 = malloc(4096); // 4096 is the PGSIZE defined in kernel/riscv.h
++  s2 = malloc(4096);
++  s3 = malloc(4096);
++  s4 = malloc(4096);
++
++  thread1 = thread_create(do_work, (void*)&b1, s1);
++  thread2 = thread_create(do_work, (void*)&b2, s2);
++  thread3 = thread_create(do_work, (void*)&b3, s3);
++  thread4 = thread_create(do_work, (void*)&b4, s4);
++
++  r1 = thread_join(thread1);
++  r2 = thread_join(thread2);
++  r3 = thread_join(thread3);
++  r4 = thread_join(thread4);
++
++  printf("Threads finished: (%d):%d, (%d):%d, (%d):%d, (%d):%d, shared balance:%d\n",
++      thread1, r1, thread2, r2, thread3, r3, thread4, r4, total_balance);
++
++  exit(0);
++}
+\ No newline at end of file
 diff --git a/user/mtxtest.c b/user/mtxtest.c
 new file mode 100644
 index 0000000..724163d
@@ -996,10 +1121,10 @@ index 0000000..1901144
 \ No newline at end of file
 diff --git a/user/producer_consumer.c b/user/producer_consumer.c
 new file mode 100644
-index 0000000..30869e2
+index 0000000..31ea565
 --- /dev/null
 +++ b/user/producer_consumer.c
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,109 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
@@ -1039,9 +1164,10 @@ index 0000000..30869e2
 +        // wait for semphore empty
 +        thread_sem_wait(&empty);
 +        // wait for mutex lock
++        sleep(10);
++
 +        thread_mutex_lock(&lock);
 +
-+        sleep(1);
 +        queue_push(&q, i);
 +        thread_mutex_lock(&plock);
 +        printf("producer produced item %d\n", i);
@@ -1066,9 +1192,10 @@ index 0000000..30869e2
 +        // wait for semphore full
 +        thread_sem_wait(&full);
 +        // wait for mutex lock
++        sleep(5);
++
 +        thread_mutex_lock(&lock);
 +
-+        sleep(1);
 +        int item = queue_front(&q);
 +        queue_pop(&q);
 +
@@ -1099,11 +1226,11 @@ index 0000000..30869e2
 +    s1 = malloc(4096);
 +    s2 = malloc(4096);
 +
-+    thread1 = thread_create(ProducerFunc, (void *)message1, s1);
 +    thread2 = thread_create(ConsumerFunc, (void *)message2, s2);
++    thread1 = thread_create(ProducerFunc, (void *)message1, s1);
 +
-+    thread_join(thread1);
 +    thread_join(thread2);
++    thread_join(thread1);
 +
 +    exit(0);
 +}
