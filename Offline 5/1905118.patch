@@ -13,7 +13,7 @@ index 0000000..ca0f549
 +}
 \ No newline at end of file
 diff --git a/Makefile b/Makefile
-index 39a99d7..82f90eb 100644
+index 39a99d7..9f3b8c1 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -87,7 +87,7 @@ $U/initcode: $U/initcode.S
@@ -25,7 +25,7 @@ index 39a99d7..82f90eb 100644
  
  _%: %.o $(ULIB)
  	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
-@@ -132,6 +132,11 @@ UPROGS=\
+@@ -132,6 +132,12 @@ UPROGS=\
  	$U/_grind\
  	$U/_wc\
  	$U/_zombie\
@@ -34,6 +34,7 @@ index 39a99d7..82f90eb 100644
 +	$U/_condvartest\
 +	$U/_semtest\
 +	$U/_producer_consumer\
++	$U/_jointest\
  
  fs.img: mkfs/mkfs README $(UPROGS)
  	mkfs/mkfs fs.img README $(UPROGS)
@@ -72,7 +73,7 @@ index a3c962b..6e0778f 100644
  // plic.c
  void            plicinit(void);
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..3183d99 100644
+index 959b778..d87e0c2 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -53,6 +53,7 @@ procinit(void)
@@ -272,8 +273,8 @@ index 959b778..3183d99 100644
 +    for(pp = proc; pp < &proc[NPROC]; pp++){
 +      if(pp->pid == thread_id){
 +        // make sure the child isn't still in exit() or swtch().
-+        acquire(&pp->lock);
 +        chan = pp;
++        acquire(&pp->lock);
 +        if(pp->state == ZOMBIE){
 +          // Found one.
 +          pid = pp->pid;
@@ -283,7 +284,7 @@ index 959b778..3183d99 100644
 +          release(&wait_lock);
 +          return pid;
 +        }
-+        release(&pp->lock);
++        release(&pp->lock);        
 +      }
 +    }
 +
@@ -802,10 +803,10 @@ index 0000000..57b1217
 \ No newline at end of file
 diff --git a/user/jointest.c b/user/jointest.c
 new file mode 100644
-index 0000000..3848a4c
+index 0000000..04b7992
 --- /dev/null
 +++ b/user/jointest.c
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,111 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
@@ -869,6 +870,12 @@ index 0000000..3848a4c
 +
 +    }
 +
++    if(b->amount == 3200)
++        r3 = thread_join(thread3);
++
++    if(b->amount == 2800)
++        r4 = thread_join(thread4);
++
 +    // thread_spin_lock(&lock);
 +    thread_mutex_lock(&plock);
 +    printf( "Done s:%x %s\n", b->name, b->name);
@@ -904,8 +911,7 @@ index 0000000..3848a4c
 +
 +  r1 = thread_join(thread1);
 +  r2 = thread_join(thread2);
-+  r3 = thread_join(thread3);
-+  r4 = thread_join(thread4);
++    
 +
 +  printf("Threads finished: (%d):%d, (%d):%d, (%d):%d, (%d):%d, shared balance:%d\n",
 +      thread1, r1, thread2, r2, thread3, r3, thread4, r4, total_balance);
