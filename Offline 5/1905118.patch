@@ -13,7 +13,7 @@ index 0000000..ca0f549
 +}
 \ No newline at end of file
 diff --git a/Makefile b/Makefile
-index 39a99d7..9f3b8c1 100644
+index 39a99d7..4997182 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -87,7 +87,7 @@ $U/initcode: $U/initcode.S
@@ -25,7 +25,7 @@ index 39a99d7..9f3b8c1 100644
  
  _%: %.o $(ULIB)
  	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
-@@ -132,6 +132,12 @@ UPROGS=\
+@@ -132,6 +132,13 @@ UPROGS=\
  	$U/_grind\
  	$U/_wc\
  	$U/_zombie\
@@ -35,6 +35,7 @@ index 39a99d7..9f3b8c1 100644
 +	$U/_semtest\
 +	$U/_producer_consumer\
 +	$U/_jointest\
++	$U/_abirtest\
  
  fs.img: mkfs/mkfs README $(UPROGS)
  	mkfs/mkfs fs.img README $(UPROGS)
@@ -73,7 +74,7 @@ index a3c962b..6e0778f 100644
  // plic.c
  void            plicinit(void);
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..762c074 100644
+index 959b778..9a7b1bc 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -53,6 +53,7 @@ procinit(void)
@@ -131,7 +132,7 @@ index 959b778..762c074 100644
  // a user program that calls exec("/init")
  // assembled from ../user/initcode.S
  // od -t xC ../user/initcode
-@@ -260,17 +280,42 @@ int
+@@ -260,17 +280,43 @@ int
  growproc(int n)
  {
    uint64 sz;
@@ -146,6 +147,7 @@ index 959b778..762c074 100644
    if(n > 0){
 +    is_alloc = 1;
      if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
++      release_mem_lock(p->mem_id);
        return -1;
      }
    } else if(n < 0){
@@ -175,7 +177,7 @@ index 959b778..762c074 100644
    return 0;
  }
  
-@@ -325,6 +370,65 @@ fork(void)
+@@ -325,6 +371,65 @@ fork(void)
    return pid;
  }
  
@@ -241,7 +243,7 @@ index 959b778..762c074 100644
  // Pass p's abandoned children to init.
  // Caller must hold wait_lock.
  void
-@@ -371,7 +475,12 @@ exit(int status)
+@@ -371,7 +476,12 @@ exit(int status)
    reparent(p);
  
    // Parent might be sleeping in wait().
@@ -255,7 +257,7 @@ index 959b778..762c074 100644
    
    acquire(&p->lock);
  
-@@ -434,6 +543,46 @@ wait(uint64 addr)
+@@ -434,6 +544,46 @@ wait(uint64 addr)
    }
  }
  
@@ -272,7 +274,7 @@ index 959b778..762c074 100644
 +  for(;;){
 +    chan = 0;
 +    for(pp = proc; pp < &proc[NPROC]; pp++){
-+      if(pp->pid == thread_id){
++      if(pp->pid == thread_id && pp->mem_id == p->mem_id){
 +        // make sure the child isn't still in exit() or swtch().
 +        acquire(&pp->lock);
 +        chan = pp;
@@ -302,7 +304,7 @@ index 959b778..762c074 100644
  // Per-CPU process scheduler.
  // Each CPU calls scheduler() after setting itself up.
  // Scheduler never returns.  It loops, doing:
-@@ -571,7 +720,7 @@ wakeup(void *chan)
+@@ -571,7 +721,7 @@ wakeup(void *chan)
    for(p = proc; p < &proc[NPROC]; p++) {
      if(p != myproc()){
        acquire(&p->lock);
@@ -311,7 +313,7 @@ index 959b778..762c074 100644
          p->state = RUNNABLE;
        }
        release(&p->lock);
-@@ -659,12 +808,12 @@ void
+@@ -659,12 +809,12 @@ void
  procdump(void)
  {
    static char *states[] = {
@@ -329,7 +331,7 @@ index 959b778..762c074 100644
    };
    struct proc *p;
    char *state;
-@@ -681,3 +830,73 @@ procdump(void)
+@@ -681,3 +831,73 @@ procdump(void)
      printf("\n");
    }
  }
@@ -645,6 +647,83 @@ index 9f69783..1847f2d 100644
  // mark a PTE invalid for user access.
  // used by exec for the user stack guard page.
  void
+diff --git a/user/abirtest.c b/user/abirtest.c
+new file mode 100644
+index 0000000..07236d8
+--- /dev/null
++++ b/user/abirtest.c
+@@ -0,0 +1,70 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++#include "semaphore.h"
++
++
++
++struct balance {
++char name[32];
++int amount;
++};
++
++struct thread_mutex plock;
++
++int thread1, thread2, thread3;
++
++void f1(void *arg){
++sleep(50);
++thread_mutex_lock(&plock);
++printf("Thread1 exit\n");
++thread_mutex_unlock(&plock);
++thread_exit();
++}
++
++void f2(void *arg){
++sleep(10);
++thread_mutex_lock(&plock);
++printf("Thread2 exit\n");
++thread_mutex_unlock(&plock);
++thread_exit();
++}
++
++void f3(void *arg){
++thread_join(thread1);
++thread_join(thread2);
++thread_mutex_lock(&plock);
++printf("Thread3 exit\n");
++thread_mutex_unlock(&plock);
++thread_exit();
++}
++
++
++
++int main() {
++
++thread_mutex_init(&plock);
++
++void *s1, *s2, *s3;
++// int thread1, thread2, thread3;
++
++s1 = malloc(4096); // 4096 is the PGSIZE defined in kernel/riscv.h
++s2 = malloc(4096);
++s3 = malloc(4096);
++
++//pthread_create(&thread1, NULL, incrementThread, NULL);
++//pthread_create(&thread2, NULL, checkValueThread, NULL);
++int b1 = 5;
++thread1 = thread_create(f1, (void*)&b1, s1);
++thread2 = thread_create(f2, (void*)&b1, s2);
++thread3 = thread_create(f3, (void*)&b1, s3);
++
++
++thread_join(thread3);
++
++
++printf("main finished");
++
++exit(0);
++
++}
+\ No newline at end of file
 diff --git a/user/condvar.c b/user/condvar.c
 new file mode 100644
 index 0000000..cfe665c
@@ -812,7 +891,7 @@ index 0000000..57b1217
 \ No newline at end of file
 diff --git a/user/jointest.c b/user/jointest.c
 new file mode 100644
-index 0000000..5b8421b
+index 0000000..1500be5
 --- /dev/null
 +++ b/user/jointest.c
 @@ -0,0 +1,112 @@
@@ -883,8 +962,8 @@ index 0000000..5b8421b
 +        r3 = thread_join(thread3);
 +
 +    if(b->amount == 2800)
-+        r5 = thread_join(thread3);
-+        // r4 = thread_join(thread4);
++        // r5 = thread_join(thread3);
++        r4 = thread_join(thread4);
 +
 +    // thread_spin_lock(&lock);
 +    thread_mutex_lock(&plock);
@@ -921,7 +1000,7 @@ index 0000000..5b8421b
 +
 +  r1 = thread_join(thread1);
 +  r2 = thread_join(thread2);
-+  r4 = thread_join(thread4);   
++//   r4 = thread_join(thread4);   
 +
 +  printf("Threads finished: (%d):%d, (%d):%d, (%d):%d {%d}, (%d):%d, shared balance:%d\n",
 +      thread1, r1, thread2, r2, thread3, r3, r5, thread4, r4, total_balance);
@@ -931,7 +1010,7 @@ index 0000000..5b8421b
 \ No newline at end of file
 diff --git a/user/mtxtest.c b/user/mtxtest.c
 new file mode 100644
-index 0000000..724163d
+index 0000000..abc8476
 --- /dev/null
 +++ b/user/mtxtest.c
 @@ -0,0 +1,148 @@
@@ -958,7 +1037,7 @@ index 0000000..724163d
 +}
 +
 +int *x[2];
-+int n = 1250;
++int n = 1000;
 +
 +struct thread_mutex printlock;
 +struct thread_mutex smemlock;
