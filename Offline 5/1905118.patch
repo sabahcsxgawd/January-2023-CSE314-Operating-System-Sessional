@@ -13,7 +13,7 @@ index 0000000..ca0f549
 +}
 \ No newline at end of file
 diff --git a/Makefile b/Makefile
-index 39a99d7..4997182 100644
+index 39a99d7..7fc01f0 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -87,7 +87,7 @@ $U/initcode: $U/initcode.S
@@ -25,7 +25,7 @@ index 39a99d7..4997182 100644
  
  _%: %.o $(ULIB)
  	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
-@@ -132,6 +132,13 @@ UPROGS=\
+@@ -132,6 +132,15 @@ UPROGS=\
  	$U/_grind\
  	$U/_wc\
  	$U/_zombie\
@@ -36,6 +36,8 @@ index 39a99d7..4997182 100644
 +	$U/_producer_consumer\
 +	$U/_jointest\
 +	$U/_abirtest\
++	$U/_ashttest1\
++	$U/_ashttest2\
  
  fs.img: mkfs/mkfs README $(UPROGS)
  	mkfs/mkfs fs.img README $(UPROGS)
@@ -724,6 +726,269 @@ index 0000000..07236d8
 +
 +}
 \ No newline at end of file
+diff --git a/user/ashttest1.c b/user/ashttest1.c
+new file mode 100644
+index 0000000..67cf998
+--- /dev/null
++++ b/user/ashttest1.c
+@@ -0,0 +1,94 @@
++#include "kernel/types.h"
++#include "user/user.h"
++#include "user/mutex.h"
++#include "user/condvar.h"
++#include "user/semaphore.h"
++
++
++struct thread_sem p, q, r;
++int c;
++int t0;
++int n = 0;
++int pid;
++int alive = 1;
++
++void new_line() {
++	for (int i = 0; i < 3; i++) {
++		if (__sync_bool_compare_and_swap(&c, i, (i + 1) % 3)) {
++			if (i == 2) {
++        if(__sync_bool_compare_and_swap(&alive, 1, 1)) {
++  		    printf("\n");
++          n++;
++
++          if (n == 10000) {
++            int t = uptime();
++            printf("finished in %d\n", (t - t0));
++            __sync_fetch_and_and(&alive, 0);
++            kill(pid);
++          }
++        }
++			}
++			return;
++		}
++	}
++}
++
++void thread_p(void*) {
++  for(;;) {
++    thread_sem_wait(&p);
++    thread_sem_wait(&p);
++    if(__sync_bool_compare_and_swap(&alive, 1, 1)) {
++      printf("p");
++    }
++    new_line();
++    thread_sem_post(&q);
++    thread_sem_post(&r);
++    // sleep(1);
++  }
++}
++
++void thread_q(void*) {
++  for(;;) {
++    thread_sem_wait(&q);
++    thread_sem_wait(&q);
++    if(__sync_bool_compare_and_swap(&alive, 1, 1)) {
++      printf("q");
++    }
++    new_line();
++    thread_sem_post(&r);
++    thread_sem_post(&p);
++    // sleep(1);
++  }
++}
++
++void thread_r(void*) {
++  for(;;) {
++    thread_sem_wait(&r);
++    thread_sem_wait(&r);
++    if(__sync_bool_compare_and_swap(&alive, 1, 1)) {
++      printf("r");
++    }
++    new_line();
++    thread_sem_post(&p);
++    thread_sem_post(&q);
++    // sleep(1);
++  }
++}
++
++int main() {
++  t0 = uptime();
++  pid = getpid();
++  thread_sem_init(&p, 2);
++  thread_sem_init(&q, 2);
++  thread_sem_init(&r, 2);
++  void *s1 = malloc(4096);
++  void *s2 = malloc(4096);
++  void *s3 = malloc(4096);
++  int th1 = thread_create(thread_p, 0, s1);
++  int th2 = thread_create(thread_q, 0, s2);
++  int th3 = thread_create(thread_r, 0, s3);
++  thread_join(th1);
++  thread_join(th2);
++  thread_join(th3);
++  return 0;
++}
+\ No newline at end of file
+diff --git a/user/ashttest2.c b/user/ashttest2.c
+new file mode 100644
+index 0000000..611d47e
+--- /dev/null
++++ b/user/ashttest2.c
+@@ -0,0 +1,155 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++#include "user/mutex.h"
++#include "user/condvar.h"
++#include "user/semaphore.h"
++
++int N = 24;
++
++struct balance {
++  char name[32];
++  int amount;
++};
++
++volatile int total_balance = 0;
++
++volatile unsigned int delay(unsigned int d) {
++  unsigned int i;
++  for (i = 0; i < d; i++) {
++    __asm volatile("nop" :::);
++  }
++
++  return i;
++}
++
++volatile int _tid = 0;
++int *x[2];
++int n = 1000;
++
++struct thread_mutex printlock;
++struct thread_mutex smemlock;
++struct thread_mutex mlock;
++struct thread_mutex lock;
++struct thread_sem sem;
++
++int *smem;
++
++
++void do_work(void *arg) {
++  int i;
++  int old;
++  int tid;
++  tid = _tid++;
++
++  struct balance *b = (struct balance *)arg;
++  x[tid] = malloc(sizeof(int) * n);
++
++
++  for (int i = 0; i < n; i++) {
++    x[tid][i] = i;
++  }
++
++  for (i = 0; i < b->amount; i++) {
++    // lock and mlock will be implemented by you.
++    thread_mutex_lock(&lock);
++    thread_mutex_lock(&mlock);
++    old = total_balance;
++    delay(100000);
++    // if(old != total_balance)  printf("we will miss an update. old: %d
++    // total_balance: %d\n", old, total_balance);
++    total_balance = old + 1;
++    thread_mutex_unlock(&lock);
++    thread_mutex_unlock(&mlock);
++  }
++
++  for (int i = 0; i < n; i++) {
++    thread_mutex_lock(&smemlock);
++    smem[i]++;
++    delay(100000);
++    thread_mutex_unlock(&smemlock);
++  }
++
++  thread_sem_post(&sem);
++
++
++  thread_exit();
++  return;
++}
++
++void empty_task() {
++
++  for (int i = 0; i < n; i++) {
++    thread_mutex_lock(&smemlock);
++    smem[i]++;
++    delay(100000);
++    thread_mutex_unlock(&smemlock);
++  }
++
++  thread_sem_post(&sem);
++
++  int *x = (int*)malloc(sizeof(int)*n);
++  int i = 0;
++  while(1){
++    x[i]++;
++    i = (i + 1) % n;
++  }
++
++  thread_exit();
++  return;
++}
++
++int main(int argc, char *argv[]) {
++
++  struct balance b1 = {"b1", 3200};
++  struct balance b2 = {"b2", 2800};
++
++  void *s1, *s2, *s3;
++  int thread1, thread2, r1, r2;
++
++  thread_mutex_init(&printlock);
++  thread_mutex_init(&smemlock);
++  thread_mutex_init(&mlock);
++  thread_mutex_init(&lock);
++  thread_sem_init(&sem, 0);
++
++  s1 = malloc(4096); // 4096 is the PGSIZE defined in kernel/riscv.h
++  s2 = malloc(4096);
++
++  smem = malloc(sizeof(int) * n);
++  memset(smem, 0, sizeof(int) * n);
++
++  thread2 = thread_create(do_work, (void *)&b2, s2);
++  thread1 = thread_create(do_work, (void *)&b1, s1);
++
++  for(int i = 0; i < (N - 2); i++) {
++    s3 = malloc(4096);
++    thread_create(empty_task, 0, s3);
++  }
++
++  r1 = thread_join(thread1);
++  r2 = thread_join(thread2);
++
++  for(int i = 0; i < N; i++){
++    thread_sem_wait(&sem);
++  }
++
++  printf("Threads finished: (%d):%d, (%d):%d, shared balance:%d\n", thread1, r1,
++         thread2, r2, total_balance);
++  printf("Thread 1 malloced: %p\n", x[0]);
++  printf("Thread 2 malloced: %p\n", x[1]);
++  for (int i = 0; i < n; i++) {
++    if (x[0][i] != i || x[1][i] != i) {
++      printf("Doesn't match\n");
++      printf("%d vs %d for %d\n", x[0][i], x[1][i], i);
++      return 0;
++    }
++    if (smem[i] != N) {
++      printf("is't N\n");
++      printf("smem[i] = %d\n", smem[i]);
++      return 0;
++    }
++  }
++  printf("Passed\n");
++  exit(0);
++}
+\ No newline at end of file
 diff --git a/user/condvar.c b/user/condvar.c
 new file mode 100644
 index 0000000..cfe665c
@@ -1010,7 +1275,7 @@ index 0000000..1500be5
 \ No newline at end of file
 diff --git a/user/mtxtest.c b/user/mtxtest.c
 new file mode 100644
-index 0000000..abc8476
+index 0000000..9a5d732
 --- /dev/null
 +++ b/user/mtxtest.c
 @@ -0,0 +1,148 @@
@@ -1037,7 +1302,7 @@ index 0000000..abc8476
 +}
 +
 +int *x[2];
-+int n = 1000;
++int n = 10000;
 +
 +struct thread_mutex printlock;
 +struct thread_mutex smemlock;
@@ -1216,7 +1481,7 @@ index 0000000..1901144
 \ No newline at end of file
 diff --git a/user/producer_consumer.c b/user/producer_consumer.c
 new file mode 100644
-index 0000000..31ea565
+index 0000000..07b4eec
 --- /dev/null
 +++ b/user/producer_consumer.c
 @@ -0,0 +1,109 @@
@@ -1259,8 +1524,8 @@ index 0000000..31ea565
 +        // wait for semphore empty
 +        thread_sem_wait(&empty);
 +        // wait for mutex lock
-+        sleep(10);
 +
++        sleep(1);
 +        thread_mutex_lock(&lock);
 +
 +        queue_push(&q, i);
@@ -1287,8 +1552,8 @@ index 0000000..31ea565
 +        // wait for semphore full
 +        thread_sem_wait(&full);
 +        // wait for mutex lock
-+        sleep(5);
 +
++        sleep(1);
 +        thread_mutex_lock(&lock);
 +
 +        int item = queue_front(&q);
@@ -1610,10 +1875,10 @@ index 0000000..9098874
 \ No newline at end of file
 diff --git a/user/threads.c b/user/threads.c
 new file mode 100644
-index 0000000..c8fa0cb
+index 0000000..bb3829a
 --- /dev/null
 +++ b/user/threads.c
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,98 @@
 +#include "kernel/types.h"
 +#include "kernel/stat.h"
 +#include "user/user.h"
@@ -1689,34 +1954,26 @@ index 0000000..c8fa0cb
 +
 +  struct balance b1 = {"b1", 3200};
 +  struct balance b2 = {"b2", 2800};
-+  struct balance b3 = {"b3", 2700};
-+  struct balance b4 = {"b4", 2300};
 +
 +//   thread_spin_init(&lock);
 +  thread_mutex_init(&mlock);
 +  thread_mutex_init(&plock);
 +
-+  void *s1, *s2, *s3, *s4;
-+  int thread1, thread2, thread3, thread4;
-+  int r1, r2, r3, r4;
++  void *s1, *s2;
++  int thread1, thread2;
++  int r1, r2;
 +
 +  s1 = malloc(4096); // 4096 is the PGSIZE defined in kernel/riscv.h
 +  s2 = malloc(4096);
-+  s3 = malloc(4096);
-+  s4 = malloc(4096);
 +
 +  thread1 = thread_create(do_work, (void*)&b1, s1);
 +  thread2 = thread_create(do_work, (void*)&b2, s2);
-+  thread3 = thread_create(do_work, (void*)&b3, s3);
-+  thread4 = thread_create(do_work, (void*)&b4, s4);
 +
 +  r1 = thread_join(thread1);
 +  r2 = thread_join(thread2);
-+  r3 = thread_join(thread3);
-+  r4 = thread_join(thread4);
 +
-+  printf("Threads finished: (%d):%d, (%d):%d, (%d):%d, (%d):%d, shared balance:%d\n",
-+      thread1, r1, thread2, r2, thread3, r3, thread4, r4, total_balance);
++  printf("Threads finished: (%d):%d, (%d):%d, shared balance:%d\n",
++      thread1, r1, thread2, r2, total_balance);
 +
 +  exit(0);
 +}
